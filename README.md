@@ -10,7 +10,7 @@ O sistema possui dois agentes:
 - **Fine-Tuning:** responde perguntas médicas gerais com o modelo Qwen2.5-0.5B-Instruct ajustado com o dataset público MedQuAD.
 - **RAG:** consulta prontuários sintéticos, recuperando exames e observações clínicas de pacientes identificados e autorizados.
 
-O LangGraph coordena as solicitações e registra o caminho percorrido em um arquivo de auditoria.
+O LangGraph coordena dois percursos principais: **RAG direto** para consultas estruturadas e **Fine-Tuning → RAG** para consultas narrativas autorizadas. Perguntas médicas gerais utilizam o modelo ajustado sem consultar prontuários. Cada solicitação passa por verificações demonstrativas de segurança e auditoria.
 
 > **Aviso:** projeto exclusivamente acadêmico. As respostas não são clinicamente validadas e não devem orientar decisões médicas reais.
 
@@ -60,27 +60,30 @@ Não foram utilizados prontuários reais. Os PDFs de protocolos estudados em exp
 
 ## Arquitetura do assistente
 
-O LangGraph determina qual caminho será executado, conforme o tipo de solicitação.
+O LangGraph seleciona a rota conforme a pergunta, a identificação do paciente e a autorização demonstrativa:
+
+- **RAG direto (`rag`):** consultas estruturadas, como exames pendentes, recuperam os dados do paciente autorizado sem executar o Fine-Tuning.
+- **Fine-Tuning → RAG (`fine_tuning_rag`):** consultas narrativas, como sintomas, passam pelo modelo ajustado e depois pelo agente RAG. O Fine-Tuning gera um rascunho auxiliar; a resposta final é fundamentada nos registros recuperados. Para sintomas e observações, o RAG transcreve a nota original, sem incorporar o rascunho.
+- **Perguntas médicas gerais (`fine_tuning`):** usam o modelo ajustado. O fluxo passa pelo nó RAG, mas **não consulta prontuários** quando não há paciente identificado.
+- **Bloqueio (`bloqueio`):** solicitações proibidas, identificação ambígua e acessos não autorizados são interrompidos antes da consulta aos dados.
 
 ```mermaid
 flowchart TD
     A["Pergunta do usuário"] --> B["LangGraph: verificar_entrada"]
 
-    B -->|"Paciente autorizado"| C["Agente RAG"]
-    B -->|"Pergunta médica geral"| D["Agente Fine-Tuning"]
-    B -->|"Bloqueio de segurança"| E["Agente de bloqueio"]
+    B -->|"Exames e dados estruturados"| C["Agente RAG"]
+    B -->|"Consulta narrativa autorizada"| D["Agente Fine-Tuning"]
+    B -->|"Pergunta médica geral"| D
+    B -->|"Bloqueio"| E["Agente de bloqueio"]
 
-    C --> F["LangChain + ChromaDB"]
-    F --> G["Recuperação exata ou Qwen original"]
-
-    D --> H["Qwen ajustado com MedQuAD"]
-
-    G --> I["Auditoria"]
-    H --> I
-    E --> I
-
-    I --> J["Resposta final"]
+    D --> C
+    C --> F["validar_saida: segurança"]
+    E --> F
+    F --> G["registrar_auditoria"]
+    G --> H["Resposta final"]
 ```
+
+A autorização é verificada na entrada, **antes do acesso ao ChromaDB**, e as respostas passam por uma verificação de saída. A auditoria registra rota, status, fontes contabilizadas e nós executados, sem registrar o conteúdo das perguntas ou respostas.
 
 ### Consulta de prontuários
 
@@ -88,13 +91,28 @@ O agente reconhece o identificador ou o nome completo do paciente. Quando necess
 
 A autorização demonstrativa é verificada antes da recuperação dos documentos.
 
-Exemplo de pergunta:
+**Exemplo — RAG direto:**
 
-**Quais exames estão pendentes para a paciente Marina Almeida Costa, 53 anos?**
+`Quais exames estão pendentes para a paciente Marina Almeida Costa, 53 anos?`
 
-Resposta esperada para o caso sintético utilizado nos testes:
+Resultado do teste:
 
 `EX-0001-01: Hemograma | Status: PENDENTE`
+
+Rota: `rag` · Status: `recuperacao_exata`
+
+**Exemplo — Fine-Tuning seguido de RAG:**
+
+`Quais sintomas estão registrados para a paciente Marina Almeida Costa, 53 anos?`
+
+Resultado do teste:
+
+> Observações clínicas registradas (transcrição):
+> - Paciente relata episódios de cefaleia e tontura.
+
+Rota: `fine_tuning_rag` · Status: `recuperacao_textual`
+
+Nesse caso, o Qwen ajustado é executado primeiro, mas a transcrição final preserva o conteúdo da nota sintética recuperada. **Isso não comprova precisão clínica do modelo ajustado.** Outras perguntas narrativas ainda podem receber geração experimental do Qwen original, sinalizada como não validada.
 
 ### Perguntas médicas gerais
 
@@ -102,7 +120,7 @@ Perguntas sem referência a um prontuário são encaminhadas ao modelo ajustado 
 
 Exemplo: `What is diabetes mellitus?`
 
-As respostas são sinalizadas como não validadas clinicamente.
+O nó RAG é atravessado sem recuperar dados de pacientes. As respostas são sinalizadas como não validadas clinicamente.
 
 ## Como executar no Google Colab
 
@@ -142,23 +160,26 @@ Na primeira execução, o ChromaDB será construído a partir dos pacientes sint
 
 ## Testes e resultados
 
-Foram validados funcionalmente os seguintes cenários:
+A execução da célula 55 no Google Colab confirmou oito cenários funcionais:
 
-- Consulta de exames pelo ID do paciente.
-- Consulta pelo nome completo e idade.
+- Consulta de exames pelo ID do paciente via RAG direto.
+- Consulta de exames pelo nome completo e idade via RAG direto.
+- Consulta de sintomas pela sequência Fine-Tuning → RAG, com transcrição da nota original.
 - Bloqueio de identificação ambígua.
 - Tratamento de paciente não identificado.
 - Bloqueio de acesso não autorizado.
 - Bloqueio de solicitação direta de prescrição.
-- Execução do modelo com Fine-Tuning.
+- Execução do modelo ajustado para uma pergunta médica geral.
 
-Os caminhos percorridos pelo LangGraph são registrados em `auditoria_langgraph.jsonl`.
+Foram confirmados **oito registros de auditoria** em `auditoria_langgraph.jsonl`, incluindo as rotas e os nós executados. Esses resultados validam o comportamento dos cenários testados, **não a exatidão clínica das respostas**.
 
 ## Limitações
 
 O sistema utiliza dados sintéticos, permissões demonstrativas e guardrails baseados em regras.
 
-O modelo ajustado pode gerar informações imprecisas ou incorretas. Foi observada uma resposta com associação conceitual inadequada entre diabetes mellitus e síndrome metabólica.
+O modelo ajustado pode gerar informações imprecisas ou incorretas. Foi observada uma resposta com associação conceitual inadequada entre diabetes mellitus e síndrome metabólica. Em um teste narrativo anterior, a geração também distorceu o termo "cefaleia"; por isso, as perguntas de sintomas agora transcrevem as notas recuperadas em vez de reformulá-las.
+
+A execução do Fine-Tuning antes do RAG demonstra a integração dos agentes, mas, nas respostas por transcrição, o rascunho do Fine-Tuning não contribui com fatos clínicos para a resposta final.
 
 O projeto não possui autenticação hospitalar real nem validação clínica sistemática.
 

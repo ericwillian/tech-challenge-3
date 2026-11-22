@@ -88,15 +88,15 @@ Entretanto, valores de loss não representam diretamente acurácia médica ou ta
 
 ## 5. Arquitetura do assistente médico
 
-O assistente foi desenvolvido com duas rotas principais de processamento, coordenadas pelo **LangGraph**.
+O assistente foi desenvolvido com dois percursos principais para consultas a pacientes, coordenados pelo **LangGraph**: **RAG direto** e **Fine-Tuning seguido de RAG**. Perguntas médicas gerais e solicitações bloqueadas possuem tratamentos específicos.
 
 ### 5.1. Agente de Fine-Tuning
 
-O primeiro agente responde perguntas médicas gerais utilizando o modelo Qwen ajustado com o MedQuAD.
+O primeiro agente utiliza o Qwen ajustado com MedQuAD. Para perguntas médicas gerais, gera uma resposta sem consultar prontuários; embora a execução passe pelo nó RAG, não há recuperação de documentos de pacientes.
 
-Esse agente não consulta os prontuários no ChromaDB. Ele gera respostas com base nos padrões aprendidos durante o treinamento.
+Para consultas narrativas a pacientes autorizados, o Fine-Tuning é executado antes do agente RAG e produz um rascunho auxiliar. Esse rascunho não substitui as informações recuperadas do prontuário e não é considerado evidência clínica.
 
-As respostas são identificadas como geradas automaticamente e não validadas clinicamente.
+As respostas geradas por modelo de linguagem são sinalizadas como não validadas clinicamente.
 
 ### 5.2. Agente RAG
 
@@ -106,7 +106,9 @@ Os registros são armazenados no ChromaDB utilizando embeddings produzidos pelo 
 
 A integração com LangChain permite recuperar documentos por identificador e realizar busca semântica nas observações clínicas.
 
-Para perguntas sobre exames, o assistente utiliza os registros estruturados recuperados. Para perguntas sobre anotações clínicas, o contexto recuperado é enviado ao Qwen original para elaboração de uma resposta.
+Para perguntas sobre exames, o assistente retorna os registros estruturados do paciente autorizado, sem geração pela LLM. Para perguntas sobre sintomas e observações clínicas, recupera as notas correspondentes e transcreve seus trechos diretamente, preservando os termos registrados.
+
+Outras perguntas narrativas podem utilizar o Qwen original para formular respostas a partir do contexto recuperado, com indicação de que a geração não foi clinicamente validada. O modelo original do RAG é diferente do Qwen ajustado pelo Fine-Tuning.
 
 ### 5.3. Identificação dos pacientes
 
@@ -118,13 +120,28 @@ Em situações de nomes duplicados, o assistente solicita informações adiciona
 
 ### 5.4. Orquestração com LangGraph
 
-O LangGraph seleciona o caminho da solicitação:
+O LangGraph seleciona o caminho conforme a pergunta, a identificação do paciente e a autorização demonstrativa:
 
-- **RAG:** perguntas relacionadas a pacientes identificados e autorizados.
-- **Fine-Tuning:** perguntas médicas gerais.
-- **Bloqueio:** solicitações proibidas, acessos indevidos ou identificação insuficiente.
+- **RAG direto (`rag`):** consultas estruturadas, como exames pendentes, vão diretamente ao agente RAG.
+- **Fine-Tuning → RAG (`fine_tuning_rag`):** consultas narrativas sobre pacientes autorizados passam primeiro pelo modelo ajustado e depois pelo RAG. Na consulta de sintomas validada, a resposta final transcreve a nota recuperada e não utiliza o rascunho como fonte de informação.
+- **Pergunta médica geral (`fine_tuning`):** utiliza o modelo ajustado; o nó RAG é percorrido sem consultar prontuários.
+- **Bloqueio (`bloqueio`):** pedidos proibidos, identificação insuficiente ou acesso não autorizado são interrompidos antes de acessar os agentes de consulta.
 
-Após a execução, o fluxo passa por um nó de auditoria, responsável por registrar o caminho percorrido.
+```mermaid
+flowchart TD
+    A["Pergunta do usuário"] --> B["verificar_entrada"]
+    B -->|"Exames e dados estruturados"| C["Agente RAG"]
+    B -->|"Consulta narrativa autorizada"| D["Agente Fine-Tuning"]
+    B -->|"Pergunta médica geral"| D
+    B -->|"Bloqueio"| E["Agente de bloqueio"]
+    D --> C
+    C --> F["validar_saida"]
+    E --> F
+    F --> G["registrar_auditoria"]
+    G --> H["Resposta final"]
+```
+
+A autorização é verificada na entrada, antes do acesso aos registros do paciente. Após o agente executado, a resposta passa pela validação de saída e pelo nó de auditoria.
 
 ## 6. Segurança e auditoria
 
@@ -140,25 +157,26 @@ Esses controles são simplificados. Não representam autenticação hospitalar r
 
 ## 7. Avaliação funcional do assistente
 
-A integração foi avaliada por meio de testes funcionais.
+A integração foi avaliada na célula 55 do Google Colab, com **oito cenários funcionais**:
 
-| Cenário                             | Resultado               |
-| ------------------------------------ | ----------------------- |
-| Consulta de exames pelo ID           | Aprovado                |
-| Consulta de exames pelo nome e idade | Aprovado                |
-| Identificação de nome duplicado    | Bloqueio correto        |
-| Paciente não identificado           | Bloqueio correto        |
-| Acesso não autorizado               | Bloqueio correto        |
-| Solicitação direta de prescrição | Bloqueio correto        |
-| Execução do agente Fine-Tuning     | Aprovado funcionalmente |
+| Cenário | Resultado observado |
+| --- | --- |
+| Consulta de exames pelo ID (`rag`) | Recuperação exata do hemograma pendente |
+| Consulta de exames pelo nome e idade (`rag`) | Prontuário autorizado identificado corretamente |
+| Consulta de sintomas (`fine_tuning_rag`) | Fine-Tuning → RAG; transcrição de “cefaleia e tontura” |
+| Identificação de nome duplicado | Bloqueio por ambiguidade |
+| Paciente não identificado | Bloqueio por identificação insuficiente |
+| Acesso não autorizado | Bloqueio antes da recuperação |
+| Solicitação direta de prescrição | Bloqueio da solicitação |
+| Pergunta médica geral (`fine_tuning`) | Modelo ajustado executado, sem recuperação de prontuário |
 
-A auditoria confirmou os sete registros correspondentes à validação.
+A auditoria confirmou **oito registros** em `auditoria_langgraph.jsonl` para essa validação.
 
-O agente RAG recuperou corretamente o hemograma pendente do paciente fictício `PAC-DEMO-001` e identificou sintomas de cefaleia e tontura presentes nas observações clínicas.
+Na consulta por exames, o sistema retornou `EX-0001-01: Hemograma | Status: PENDENTE` para o paciente fictício `PAC-DEMO-001`.
 
-O agente Fine-Tuning também foi executado com seus pesos ajustados, e o LangGraph registrou a rota correspondente.
+Na consulta de sintomas, o caminho registrado foi `verificar_entrada → agente_fine_tuning → agente_rag → validar_saida → registrar_auditoria`, com status `recuperacao_textual`. A resposta preservou a observação sintética: “Paciente relata episódios de cefaleia e tontura.”
 
-Esses resultados demonstram o funcionamento dos fluxos avaliados, mas não permitem estimar a acurácia do modelo em situações clínicas reais.
+Esses resultados confirmam o comportamento dos cenários funcionais testados, mas não demonstram acurácia clínica ou qualidade geral das respostas do modelo.
 
 ## 8. Análise crítica das respostas
 
@@ -168,7 +186,9 @@ Entretanto, em uma resposta sobre diabetes mellitus, o modelo apresentou uma ass
 
 Também foram observadas respostas interrompidas pelo limite de tokens configurado para inferência.
 
-Esses resultados indicam que a execução bem-sucedida do Fine-Tuning não garante precisão factual ou completude das respostas.
+Em um teste anterior de sintomas, a resposta gerada alterou incorretamente a palavra “cefaleia”. Para esse tipo de consulta, a implementação passou a transcrever diretamente a observação recuperada do prontuário sintético. A nova execução confirmou a preservação de “cefaleia e tontura”. Trata-se de uma mitigação localizada, não de uma validação clínica do modelo.
+
+Esses resultados indicam que a execução bem-sucedida do Fine-Tuning e a recuperação de documentos não garantem, isoladamente, precisão factual ou completude das respostas.
 
 O protótipo precisa de avaliação adicional com perguntas de teste independentes, critérios objetivos de qualidade e revisão de profissionais habilitados antes de qualquer aplicação médica real.
 
@@ -181,6 +201,8 @@ As principais limitações identificadas foram:
 - As permissões de acesso são simuladas.
 - O reconhecimento de intenções e os guardrails utilizam regras baseadas em padrões textuais.
 - O modelo pode produzir informações incorretas, imprecisas ou incompletas.
+- Nas respostas por transcrição, a execução do Fine-Tuning antes do RAG demonstra o percurso dos agentes, mas o rascunho não contribui com informações clínicas para o texto final.
+- A transcrição preserva o texto da nota sintética, mas não verifica sua veracidade clínica.
 - Não foi realizada validação clínica sistemática.
 - A execução exige configurar dependências, reconstruir o índice vetorial e disponibilizar os pesos do modelo ajustado.
 
@@ -190,11 +212,11 @@ Essas limitações devem ser consideradas na interpretação dos resultados.
 
 O Tech Challenge demonstrou a implementação de um protótipo de assistente médico que integra Full Fine-Tuning, RAG e LangGraph.
 
-O modelo Qwen2.5-0.5B-Instruct foi ajustado com o MedQuAD e posteriormente integrado a uma rota de perguntas médicas gerais.
+O Qwen2.5-0.5B-Instruct foi ajustado com o MedQuAD e integrado ao LangGraph para perguntas médicas gerais e para a etapa inicial de consultas narrativas, seguida pelo agente RAG.
 
-Paralelamente, foi desenvolvido um agente RAG capaz de consultar informações de 1.000 pacientes sintéticos armazenados no ChromaDB.
+O agente RAG permite consultar informações de 1.000 pacientes sintéticos indexadas no ChromaDB, com consultas estruturadas diretas e recuperação de observações clínicas.
 
-Os testes confirmaram o roteamento funcional, a recuperação de informações, o tratamento de nomes ambíguos, os bloqueios demonstrativos e o registro de auditoria.
+Os oito testes funcionais confirmaram os dois percursos principais, a recuperação de informações, o tratamento de nomes ambíguos, os bloqueios demonstrativos e o registro de auditoria. A correção da resposta de sintomas preservou o texto original recuperado, sem comprovar a precisão clínica do modelo.
 
 Como evolução futura, seriam necessárias validações clínicas abrangentes, autenticação real, controles de segurança mais robustos e estudos adicionais sobre a qualidade das respostas geradas.
 
