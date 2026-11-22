@@ -17,7 +17,7 @@ Para o Fine-Tuning, foi utilizado o **MedQuAD**, um conjunto público de pergunt
 
 Os dados passaram por etapas de extração, normalização, remoção de duplicatas, formatação e separação entre treinamento, validação e teste.
 
-O conjunto de teste foi reservado para avaliação independente, sem participação no treinamento.
+O conjunto de teste foi reservado para avaliação independente, sem participação no treinamento. No notebook, o carregamento do MedQuAD e a preparação dos exemplos estão nas seções **1 — Ambiente e carregamento do MedQuAD** e **2 — Preparação dos dados para o Fine-Tuning**.
 
 Para o treinamento ampliado, foram selecionados exemplos que respeitavam o limite máximo de 512 tokens, evitando truncamentos que poderiam comprometer as respostas.
 
@@ -50,9 +50,9 @@ Optou-se pelo **Full Fine-Tuning**, no qual os pesos treináveis do modelo são 
 
 Os exemplos foram convertidos para o formato de conversação esperado pelo modelo. A tokenização incluiu máscaras para restringir o cálculo da perda aos tokens apropriados da resposta.
 
-Foi realizado inicialmente um experimento reduzido, utilizado para verificar o funcionamento do pipeline. Posteriormente, iniciou-se o treinamento ampliado a partir dos pesos originais do Qwen.
+O notebook final foi organizado para apresentar somente a preparação dos dados e o **Full Fine-Tuning definitivo**, iniciado a partir dos pesos originais do Qwen. As células de experimentos intermediários foram retiradas desta versão para facilitar a leitura.
 
-### 3.3. Configuração do experimento principal
+### 3.3. Configuração do Full Fine-Tuning definitivo
 
 | Parâmetro                          | Configuração                |
 | ----------------------------------- | ----------------------------- |
@@ -72,7 +72,7 @@ Os pesos completos e o tokenizer foram salvos ao término do treinamento e expor
 
 ## 4. Resultados do treinamento
 
-O treinamento ampliado foi concluído após aproximadamente **1 hora e 2 minutos**, totalizando 1.424 etapas de otimização.
+O treinamento definitivo, documentado na **seção 3 — Full Fine-Tuning definitivo e exportação** do notebook, foi concluído após aproximadamente **1 hora e 2 minutos**, totalizando 1.424 etapas de otimização.
 
 | Métrica               |         Resultado |
 | ---------------------- | ----------------: |
@@ -88,7 +88,7 @@ Entretanto, valores de loss não representam diretamente acurácia médica ou ta
 
 ## 5. Arquitetura do assistente médico
 
-O assistente foi desenvolvido com dois percursos principais para consultas a pacientes, coordenados pelo **LangGraph**: **RAG direto** e **Fine-Tuning seguido de RAG**. Perguntas médicas gerais e solicitações bloqueadas possuem tratamentos específicos.
+O assistente foi desenvolvido com dois percursos principais para consultas a pacientes, coordenados pelo **LangGraph**: **RAG direto** e **Fine-Tuning seguido de RAG**. Perguntas médicas gerais e solicitações bloqueadas possuem tratamentos específicos. No notebook, essa implementação está agrupada nas seções **4 — Prontuários sintéticos e RAG** e **5 — LangGraph e integração dos agentes**.
 
 ### 5.1. Agente de Fine-Tuning
 
@@ -157,7 +157,7 @@ Esses controles são simplificados. Não representam autenticação hospitalar r
 
 ## 7. Avaliação funcional do assistente
 
-A integração foi avaliada na célula 55 do Google Colab, com **oito cenários funcionais**:
+A integração foi avaliada no bloco **Validação final do assistente médico**, da **seção 6 — Validação e demonstração** do notebook, com **oito cenários funcionais**:
 
 | Cenário | Resultado observado |
 | --- | --- |

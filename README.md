@@ -52,7 +52,7 @@ As métricas demonstram a execução do treinamento, mas não representam acurá
 
 Foram criados 1.000 pacientes fictícios, contendo dados cadastrais, observações clínicas e exames simulados.
 
-Os registros estão disponíveis em `data/processed/patients_vector_v1.json`.
+Os registros sintéticos são armazenados em `TechChallenge3/data/synthetic/patients_vector_v1.json` no Google Drive.
 
 Os dados são convertidos em **3.000 documentos vetoriais**, indexados no ChromaDB por meio de embeddings multilíngues.
 
@@ -140,27 +140,34 @@ O notebook principal está na pasta `notebooks/`.
 4. Coloque o ZIP nessa pasta, sem descompactá-lo.
 5. Execute as células indicadas abaixo.
 
-### Sequência de execução do assistente
+### Organização do notebook
 
-| Células | Finalidade                                   |
-| -------- | -------------------------------------------- |
-| 44–45   | Preparação do ambiente e dados sintéticos |
-| 46–47   | Indexação e recuperação no ChromaDB      |
-| 48       | Agente RAG                                   |
-| 50       | LangGraph e auditoria                        |
-| 52–53   | Restauração e carregamento do Fine-Tuning  |
-| 54       | Integração do modelo ajustado ao LangGraph |
-| 55       | Validação funcional                        |
+O notebook está dividido em **seis seções principais**. Os nomes abaixo correspondem aos títulos exibidos no índice lateral do Colab:
 
-As células anteriores à 44 documentam o desenvolvimento e o treinamento original. **Não é necessário repetir o treinamento para executar o assistente.**
+| Seção | Título | Conteúdo |
+| --- | --- | --- |
+| **1** | **Ambiente e carregamento do MedQuAD** | GPU, dependências, Google Drive e dataset. |
+| **2** | **Preparação dos dados para o Fine-Tuning** | Qwen base, formatação, tokenização e validação. |
+| **3** | **Full Fine-Tuning definitivo e exportação** | Configuração, treinamento já realizado, métricas e ZIP. |
+| **4** | **Prontuários sintéticos e RAG** | Base fictícia, ChromaDB, recuperação e agente RAG. |
+| **5** | **LangGraph e integração dos agentes** | Roteamento, restauração e carregamento do modelo ajustado, integração. |
+| **6** | **Validação e demonstração** | Testes funcionais, auditoria e perguntas interativas. |
 
-As células 49 e 51 correspondem a verificações intermediárias e não são necessárias para a execução final.
+### Sequência de execução do assistente (sessão nova)
+
+Execute as células de código **de cima para baixo** nas seções abaixo, sem usar a opção "Executar tudo":
+
+1. **Seção 4 — Prontuários sintéticos e RAG:** execute todos os blocos, de **Preparação do ambiente do assistente médico** até **Agente RAG com Qwen**.
+2. **Seção 5 — LangGraph e integração dos agentes:** execute todos os blocos, de **Orquestração dos agentes com LangGraph** até **Integração do modelo Fine-Tuning ao LangGraph**.
+3. **Seção 6 — Validação e demonstração:** execute **Validação final do assistente médico** e, para demonstrar consultas, **Teste realizando o input no terminal**.
+
+As seções **1 e 2** documentam a preparação original do treinamento; não são necessárias para restaurar o assistente já treinado. A seção **3** contém o treinamento histórico: **não reexecute o bloco _Execução do Full Fine-Tuning ampliado_**, pois ele chama `trainer_v2.train()`. Para restaurar o modelo no assistente, utilize o ZIP na seção 5, sem treinar novamente.
 
 Na primeira execução, o ChromaDB será construído a partir dos pacientes sintéticos. Em execuções posteriores, o índice persistido poderá ser reutilizado.
 
 ## Testes e resultados
 
-A execução da célula 55 no Google Colab confirmou oito cenários funcionais:
+A execução do bloco **Validação final do assistente médico**, na **seção 6 — Validação e demonstração**, confirmou oito cenários funcionais:
 
 - Consulta de exames pelo ID do paciente via RAG direto.
 - Consulta de exames pelo nome completo e idade via RAG direto.
