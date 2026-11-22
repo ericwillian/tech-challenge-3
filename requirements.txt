@@ -1,13 +1,37 @@
+
+# Processamento e análise de dados
 pandas
 numpy
+scikit-learn
+matplotlib
+seaborn
+
+# Fine-Tuning e modelos de linguagem
 datasets
 transformers
 peft
 trl
 accelerate
 torch
-scikit-learn
-matplotlib
-seaborn
+safetensors
+huggingface-hub
+
+# Embeddings e recuperação de informações
+sentence-transformers
+chromadb
+
+# LangChain e LangGraph
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-chroma
+langchain-huggingface
+langgraph
+
+# Leitura de documentos PDF
+pymupdf
+
+# Ambiente e configurações
 jupyter
 python-dotenv
